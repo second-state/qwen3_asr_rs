@@ -20,26 +20,24 @@ The implementation ports the Qwen3-ASR encoder-decoder architecture from PyTorch
 
 ### libtorch
 
-Download and extract libtorch for your platform:
+The `tch` crate (v0.20) requires **libtorch 2.7.1**. Download and extract for your platform:
 
 ```bash
 # macOS (Apple Silicon)
-wget https://download.pytorch.org/libtorch/cpu/libtorch-macos-arm64-2.10.0.zip
-unzip libtorch-macos-arm64-2.10.0.zip
+curl -LO https://download.pytorch.org/libtorch/cpu/libtorch-macos-arm64-2.7.1.zip
+unzip libtorch-macos-arm64-2.7.1.zip
 
-# Linux (CPU)
-wget https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.10.0%2Bcpu.zip
-unzip libtorch-cxx11-abi-shared-with-deps-2.10.0+cpu.zip
+# Linux x86_64 (CPU)
+curl -LO https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcpu.zip
+unzip libtorch-cxx11-abi-shared-with-deps-2.7.1+cpu.zip
 
-# Linux (CUDA 12.6)
-wget https://download.pytorch.org/libtorch/cu126/libtorch-cxx11-abi-shared-with-deps-2.10.0%2Bcu126.zip
-unzip libtorch-cxx11-abi-shared-with-deps-2.10.0+cu126.zip
-```
+# Linux ARM64 (CPU)
+curl -LO https://github.com/second-state/libtorch-releases/releases/download/v2.7.1/libtorch-cxx11-abi-aarch64-2.7.1.tar.gz
+tar xzf libtorch-cxx11-abi-aarch64-2.7.1.tar.gz
 
-Or symlink to an existing libtorch installation:
-
-```bash
-ln -s /path/to/libtorch ./libtorch
+# Linux x86_64 (CUDA 12.8)
+curl -LO https://download.pytorch.org/libtorch/cu128/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcu128.zip
+unzip libtorch-cxx11-abi-shared-with-deps-2.7.1+cu128.zip
 ```
 
 ### FFmpeg
@@ -83,6 +81,7 @@ tok.backend_tokenizer.save('Qwen3-ASR-0.6B/tokenizer.json')
 ```bash
 # Set environment
 export LIBTORCH=$(pwd)/libtorch
+export LIBTORCH_BYPASS_VERSION_CHECK=1
 export LD_LIBRARY_PATH=$LIBTORCH/lib:$LD_LIBRARY_PATH    # Linux
 export DYLD_LIBRARY_PATH=$LIBTORCH/lib:$DYLD_LIBRARY_PATH  # macOS
 

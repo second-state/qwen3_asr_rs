@@ -39,6 +39,10 @@ pub struct AudioEncoderConfig {
     pub max_source_positions: usize,
     #[serde(default = "default_n_window")]
     pub n_window: usize,
+    #[serde(default = "default_n_window_infer")]
+    pub n_window_infer: usize,
+    #[serde(default = "default_conv_chunksize")]
+    pub conv_chunksize: usize,
     #[serde(default = "default_downsample_hidden_size")]
     pub downsample_hidden_size: i64,
     #[serde(default = "default_output_dim")]
@@ -52,6 +56,8 @@ fn default_encoder_ffn_dim() -> i64 { 3584 }
 fn default_num_mel_bins() -> usize { 128 }
 fn default_max_source_positions() -> usize { 1500 }
 fn default_n_window() -> usize { 50 }
+fn default_n_window_infer() -> usize { 800 }
+fn default_conv_chunksize() -> usize { 500 }
 fn default_downsample_hidden_size() -> i64 { 480 }
 fn default_output_dim() -> i64 { 1024 }
 
