@@ -34,11 +34,9 @@ impl AsrInference {
         let config =
             AsrConfig::from_file(&model_dir.join("config.json")).context("Failed to load config")?;
 
-        // Load weights
-        let safetensors_path = model_dir.join("model.safetensors");
-        tracing::info!("Loading weights from {:?}", safetensors_path);
+        // Load weights (supports both single-file and sharded safetensors)
         let all_weights =
-            weights::load_safetensors(&safetensors_path, device).context("Failed to load weights")?;
+            weights::load_model_weights(model_dir, device).context("Failed to load weights")?;
 
         tracing::info!("Loaded {} weight tensors", all_weights.len());
 

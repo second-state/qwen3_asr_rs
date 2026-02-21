@@ -15,6 +15,7 @@ The implementation ports the Qwen3-ASR encoder-decoder architecture from PyTorch
 | Model | Parameters | HuggingFace |
 |-------|-----------|-------------|
 | Qwen3-ASR-0.6B | 0.6B | [Qwen/Qwen3-ASR-0.6B](https://huggingface.co/Qwen/Qwen3-ASR-0.6B) |
+| Qwen3-ASR-1.7B | 1.7B | [Qwen/Qwen3-ASR-1.7B](https://huggingface.co/Qwen/Qwen3-ASR-1.7B) |
 
 ## Prerequisites
 
@@ -54,16 +55,14 @@ sudo apt-get install libavcodec-dev libavformat-dev libavutil-dev libswresample-
 
 ### Model Weights
 
-Download the model from HuggingFace:
+Download a model from HuggingFace:
 
 ```bash
-# Using git-lfs
-git lfs install
-git clone https://huggingface.co/Qwen/Qwen3-ASR-0.6B
-
-# Or using huggingface-cli
-pip install huggingface_hub
+# 0.6B model
 huggingface-cli download Qwen/Qwen3-ASR-0.6B --local-dir Qwen3-ASR-0.6B
+
+# 1.7B model (sharded safetensors, auto-detected)
+huggingface-cli download Qwen/Qwen3-ASR-1.7B --local-dir Qwen3-ASR-1.7B
 ```
 
 Generate `tokenizer.json` (required):
