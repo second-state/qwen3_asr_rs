@@ -29,13 +29,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install FFmpeg dev libraries (Linux)
+      - name: Install build tools (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libavcodec-dev libavformat-dev libavutil-dev libavfilter-dev libavdevice-dev libswresample-dev libswscale-dev pkg-config
-
-      - name: Install FFmpeg (macOS)
-        if: runner.os == 'macOS'
-        run: brew install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y nasm pkg-config
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -70,7 +66,7 @@ jobs:
         env:
           LIBTORCH: ${{ github.workspace }}/libtorch
           LIBTORCH_BYPASS_VERSION_CHECK: "1"
-        run: cargo build --release
+        run: cargo build --release --features build-ffmpeg
 
       - name: Set up Python
         uses: actions/setup-python@v5
