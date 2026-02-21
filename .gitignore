@@ -19,3 +19,15 @@ target
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+# Model weights and libtorch
+Qwen3-ASR-0.6B/
+libtorch
+
+# Test audio files
+*.wav
+*.mp3
+*.flac
+*.m4a
+*.ogg
+*.aac
