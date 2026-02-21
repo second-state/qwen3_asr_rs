@@ -74,10 +74,12 @@ jobs:
           LIBTORCH_BYPASS_VERSION_CHECK: "1"
         run: cargo build --release --features build-ffmpeg
 
-      - name: Rename binary
-        run: cp target/release/asr ${{ matrix.asset-name }}
+      - name: Package binary
+        run: |
+          cp target/release/asr ${{ matrix.asset-name }}
+          zip ${{ matrix.asset-name }}.zip ${{ matrix.asset-name }}
 
       - name: Upload release asset
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" "${{ matrix.asset-name }}"
+        run: gh release upload "${{ github.event.release.tag_name }}" "${{ matrix.asset-name }}.zip"

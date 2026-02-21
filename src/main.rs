@@ -25,8 +25,7 @@ fn main() -> Result<()> {
         eprintln!("  audio_file   Path to the input audio file (any format supported by ffmpeg)");
         eprintln!("  language     Optional: force language (e.g., chinese, english, japanese)");
         eprintln!();
-        eprintln!("The audio file will be automatically converted to mono 24kHz 16-bit PCM");
-        eprintln!("and then resampled to 16kHz for the model.");
+        eprintln!("The audio file will be automatically converted to mono 16kHz f32 for the model.");
         eprintln!();
         eprintln!("Environment variables:");
         eprintln!("  LIBTORCH     Path to libtorch installation");

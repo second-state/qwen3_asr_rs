@@ -8,7 +8,7 @@ The implementation ports the Qwen3-ASR encoder-decoder architecture from PyTorch
 
 - **Audio Encoder** (Whisper-style): 3x Conv2d downsampling → sinusoidal positional embeddings → 18 transformer encoder layers → output projection (896 → 1024)
 - **Text Decoder** (Qwen3): 28 transformer decoder layers with Grouped Query Attention (16 Q heads / 8 KV heads), QK-normalization, MRoPE (Multimodal Rotary Position Embeddings), and SwiGLU MLP
-- **Audio preprocessing**: FFmpeg (statically linked) decodes any audio format → resampled to mono 24kHz 16-bit PCM → internally resampled to 16kHz → 128-bin log-mel spectrogram (Whisper-style)
+- **Audio preprocessing**: FFmpeg decodes any audio format → resampled to mono 16kHz f32 → 128-bin log-mel spectrogram (Whisper-style)
 
 ## Supported Models
 
@@ -115,13 +115,7 @@ RUST_LOG=debug asr ./Qwen3-ASR-0.6B input.wav
 
 ### Input Audio Requirements
 
-The `asr` binary accepts **any audio format** supported by FFmpeg. The audio is automatically preprocessed to:
-
-- Mono channel
-- 24 kHz sample rate
-- 16-bit signed PCM
-
-Then internally resampled to 16 kHz for the model's mel spectrogram computation.
+The `asr` binary accepts **any audio format** supported by FFmpeg. The audio is automatically converted to mono 16 kHz f32 for the model's mel spectrogram computation.
 
 ### Output Format
 
