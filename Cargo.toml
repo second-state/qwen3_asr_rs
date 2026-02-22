@@ -10,7 +10,7 @@ name = "asr"
 path = "src/main.rs"
 
 [dependencies]
-tch = "0.20"
+tch = { version = "0.20", optional = true }
 tokenizers = "0.21"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -24,7 +24,12 @@ safetensors = "0.5"
 ffmpeg-next = "8"
 ffmpeg-sys-next = "8"
 
+[build-dependencies]
+cmake = "0.1"
+
 [features]
-default = []
+default = ["tch-backend"]
+tch-backend = ["dep:tch"]
+mlx = []
 static-ffmpeg = ["ffmpeg-sys-next/static"]
 build-ffmpeg = ["ffmpeg-sys-next/build", "static-ffmpeg"]

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Bootstrap script for Qwen3 ASR skill
-# Downloads platform-specific binary, libtorch, and models
+# Downloads platform-specific binary, libtorch (Linux only), and models
 
 set -e
 
@@ -55,6 +55,7 @@ get_asset_name() {
 
 download_binary() {
     local asset_name="$1"
+    local zip_name="${asset_name}.zip"
 
     echo "=== Downloading binary (${asset_name}) ===" >&2
 
@@ -63,23 +64,37 @@ download_binary() {
     # Get download URL from latest release
     local api_url="https://api.github.com/repos/${REPO}/releases/latest"
     local download_url
-    download_url=$(curl -sL "$api_url" | grep -o "https://github.com/${REPO}/releases/download/[^\"]*/${asset_name}" | head -1)
+    download_url=$(curl -sL "$api_url" | grep -o "https://github.com/${REPO}/releases/download/[^\"]*/${zip_name}" | head -1)
 
     if [ -z "$download_url" ]; then
-        echo "Error: Could not find release asset ${asset_name}" >&2
+        echo "Error: Could not find release asset ${zip_name}" >&2
         echo "Check https://github.com/${REPO}/releases for available downloads." >&2
         exit 1
     fi
 
+    local temp_dir
+    temp_dir=$(mktemp -d)
+
     echo "Fetching from: ${download_url}" >&2
-    curl -sL -o "${SCRIPTS_DIR}/asr" "$download_url"
+    curl -sL -o "${temp_dir}/${zip_name}" "$download_url"
+
+    echo "Extracting binary..." >&2
+    unzip -q "${temp_dir}/${zip_name}" -d "${temp_dir}"
+    cp "${temp_dir}/${asset_name}/asr" "${SCRIPTS_DIR}/asr"
     chmod +x "${SCRIPTS_DIR}/asr"
 
+    rm -rf "$temp_dir"
     echo "Binary installed to ${SCRIPTS_DIR}/asr" >&2
 }
 
 download_libtorch() {
     local platform="$1"
+
+    # macOS uses MLX backend — no libtorch needed
+    if [[ "$platform" == darwin-* ]]; then
+        echo "=== Skipping libtorch (macOS uses MLX backend) ===" >&2
+        return
+    fi
 
     echo "=== Downloading libtorch ===" >&2
 
@@ -94,10 +109,6 @@ download_libtorch() {
     linux-aarch64)
         libtorch_url="https://github.com/second-state/libtorch-releases/releases/download/v2.7.1/libtorch-cxx11-abi-aarch64-2.7.1.tar.gz"
         archive_name="libtorch.tar.gz"
-        ;;
-    darwin-aarch64)
-        libtorch_url="https://download.pytorch.org/libtorch/cpu/libtorch-macos-arm64-2.7.1.zip"
-        archive_name="libtorch.zip"
         ;;
     *)
         echo "Error: No libtorch URL for platform ${platform}" >&2
@@ -136,7 +147,7 @@ download_models() {
         pip install -q huggingface_hub transformers
     fi
 
-    for model in Qwen3-ASR-0.6B Qwen3-ASR-1.7B; do
+    for model in Qwen3-ASR-0.6B; do
         local model_dir="${MODELS_DIR}/${model}"
         if [ ! -d "$model_dir" ] || [ -z "$(ls -A "$model_dir" 2>/dev/null)" ]; then
             echo "Downloading ${model}..." >&2
@@ -150,7 +161,7 @@ download_models() {
     echo "Generating tokenizer.json files..." >&2
     python3 -c "
 from transformers import AutoTokenizer
-for model in ['Qwen3-ASR-0.6B', 'Qwen3-ASR-1.7B']:
+for model in ['Qwen3-ASR-0.6B']:
     path = '${MODELS_DIR}/' + model
     tok = AutoTokenizer.from_pretrained(path, trust_remote_code=True)
     tok.backend_tokenizer.save(path + '/tokenizer.json')

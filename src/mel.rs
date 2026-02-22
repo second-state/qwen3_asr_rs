@@ -1,5 +1,5 @@
 use anyhow::Result;
-use tch::{Kind, Tensor};
+use crate::tensor::{DType, Device, Tensor};
 
 /// Whisper-style mel spectrogram feature extractor.
 ///
@@ -22,7 +22,7 @@ impl WhisperFeatureExtractor {
         hop_length: usize,
         num_mel_bins: usize,
         sample_rate: u32,
-        device: tch::Device,
+        device: Device,
     ) -> Self {
         let mel_filters =
             create_mel_filterbank(num_mel_bins, n_fft, sample_rate, 0.0, sample_rate as f64 / 2.0)
@@ -46,36 +46,33 @@ impl WhisperFeatureExtractor {
     ///
     /// Input: f32 samples at self.sample_rate (16kHz)
     /// Output: (num_mel_bins, num_frames) tensor
-    pub fn extract(&self, samples: &[f32], device: tch::Device) -> Result<Tensor> {
+    pub fn extract(&self, samples: &[f32], device: Device) -> Result<Tensor> {
         // Pad samples to the next multiple of hop_length to ensure clean frame count.
-        // This matches Python's behavior where scipy.resample_poly produces exact sample counts.
         let padded_len = ((samples.len() + self.hop_length - 1) / self.hop_length) * self.hop_length;
         let mut padded_samples = samples.to_vec();
         padded_samples.resize(padded_len, 0.0);
 
-        let waveform = Tensor::from_slice(&padded_samples)
-            .to_kind(Kind::Float)
+        let waveform = Tensor::from_slice_f32(&padded_samples)
+            .to_dtype(DType::Float32)
             .to_device(device);
 
         // Create Hann window
-        let window = Tensor::hann_window(self.n_fft as i64, (Kind::Float, device));
+        let window = Tensor::hann_window(self.n_fft as i64, device);
 
         // Center padding: pad waveform with n_fft//2 reflected samples on each side.
-        // This matches Python's torch.stft(center=True, pad_mode='reflect').
         let pad = (self.n_fft / 2) as i64;
         let waveform = waveform.unsqueeze(0).unsqueeze(0); // (1,1,N) for reflection_pad1d
-        let waveform = waveform.reflection_pad1d([pad, pad]).squeeze_dim(0).squeeze_dim(0);
+        let waveform = waveform.reflection_pad1d(&[pad, pad]).squeeze_dim(0).squeeze_dim(0);
 
         // Compute STFT (no center, since we already padded manually)
         let stft = waveform.stft(
             self.n_fft as i64,           // n_fft
-            Some(self.hop_length as i64), // hop_length
-            None,                        // win_length (defaults to n_fft)
-            Some(&window),               // window
+            self.hop_length as i64,      // hop_length
+            self.n_fft as i64,           // win_length (defaults to n_fft)
+            &window,                     // window
             false,                       // normalized
             true,                        // onesided
             true,                        // return_complex
-            false,                       // align_to_window
         );
 
         // Compute power spectrogram: |STFT|^2
@@ -186,5 +183,5 @@ fn create_mel_filterbank(
         }
     }
 
-    Tensor::from_slice(&filters).reshape([num_mels as i64, n_freqs as i64])
+    Tensor::from_slice_f32(&filters).reshape(&[num_mels as i64, n_freqs as i64])
 }

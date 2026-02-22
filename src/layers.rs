@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use tch::{Kind, Tensor};
 use anyhow::Result;
+use crate::tensor::{DType, Device, Tensor};
 use crate::weights::{get_weight, get_weight_opt};
 
 // ============================================================================
@@ -23,9 +23,8 @@ impl LayerNorm {
     }
 
     pub fn forward(&self, x: &Tensor) -> Tensor {
-        // LayerNorm: (x - mean) / sqrt(var + eps) * weight + bias
         let ndim = x.dim();
-        x.layer_norm(&[x.size()[ndim - 1]], Some(&self.weight), Some(&self.bias), self.eps, true)
+        x.layer_norm(&[x.size()[ndim - 1]], Some(&self.weight), Some(&self.bias), self.eps)
     }
 }
 
@@ -48,10 +47,10 @@ impl RmsNorm {
 
     pub fn forward(&self, x: &Tensor) -> Tensor {
         let dtype = x.kind();
-        let x = x.to_kind(Kind::Float);
-        let variance = (&x * &x).mean_dim(-1, true, Kind::Float);
+        let x = x.to_dtype(DType::Float32);
+        let variance = (&x * &x).mean_dim(&[-1], true);
         let x = &x * (&variance + self.eps).rsqrt();
-        (x * &self.weight).to_kind(dtype)
+        (x * &self.weight).to_dtype(dtype)
     }
 }
 
@@ -151,13 +150,13 @@ impl AudioAttention {
     }
 
     pub fn forward(&self, x: &Tensor, mask: Option<&Tensor>) -> Tensor {
-        let (bsz, seq_len, _) = x.size3().unwrap();
+        let (bsz, seq_len, _) = x.size3();
         let nh = self.num_heads as i64;
         let hd = self.head_dim as i64;
 
-        let q = self.q_proj.forward(x).reshape([bsz, seq_len, nh, hd]).permute([0, 2, 1, 3]);
-        let k = self.k_proj.forward(x).reshape([bsz, seq_len, nh, hd]).permute([0, 2, 1, 3]);
-        let v = self.v_proj.forward(x).reshape([bsz, seq_len, nh, hd]).permute([0, 2, 1, 3]);
+        let q = self.q_proj.forward(x).reshape(&[bsz, seq_len, nh, hd]).permute(&[0, 2, 1, 3]);
+        let k = self.k_proj.forward(x).reshape(&[bsz, seq_len, nh, hd]).permute(&[0, 2, 1, 3]);
+        let v = self.v_proj.forward(x).reshape(&[bsz, seq_len, nh, hd]).permute(&[0, 2, 1, 3]);
 
         let scale = (hd as f64).sqrt();
         let mut attn = q.matmul(&k.transpose(-2, -1)) / scale;
@@ -166,9 +165,9 @@ impl AudioAttention {
             attn = attn + m;
         }
 
-        let attn = attn.softmax(-1, Kind::Float);
+        let attn = attn.softmax(-1).to_dtype(DType::Float32);
         let out = attn.matmul(&v); // (bsz, nh, seq_len, hd)
-        let out = out.permute([0, 2, 1, 3]).reshape([bsz, seq_len, nh * hd]);
+        let out = out.permute(&[0, 2, 1, 3]).reshape(&[bsz, seq_len, nh * hd]);
         self.out_proj.forward(&out)
     }
 }
@@ -191,7 +190,7 @@ impl AudioFfn {
     }
 
     pub fn forward(&self, x: &Tensor) -> Tensor {
-        let x = self.fc1.forward(x).gelu("none");
+        let x = self.fc1.forward(x).gelu();
         self.fc2.forward(&x)
     }
 }
@@ -282,12 +281,6 @@ impl TextAttention {
     }
 
     /// Forward pass with KV cache support.
-    ///
-    /// cos, sin: (seq_len, head_dim) for RoPE
-    /// kv_cache: optional (past_key, past_value)
-    /// mask: causal attention mask
-    ///
-    /// Returns: (output, (new_key, new_value))
     pub fn forward(
         &self,
         x: &Tensor,
@@ -296,15 +289,15 @@ impl TextAttention {
         kv_cache: Option<&(Tensor, Tensor)>,
         mask: Option<&Tensor>,
     ) -> (Tensor, (Tensor, Tensor)) {
-        let (bsz, seq_len, _) = x.size3().unwrap();
+        let (bsz, seq_len, _) = x.size3();
         let nqh = self.num_q_heads as i64;
         let nkvh = self.num_kv_heads as i64;
         let hd = self.head_dim as i64;
 
         // Project Q, K, V
-        let q = self.q_proj.forward(x).reshape([bsz, seq_len, nqh, hd]).transpose(1, 2);
-        let k = self.k_proj.forward(x).reshape([bsz, seq_len, nkvh, hd]).transpose(1, 2);
-        let v = self.v_proj.forward(x).reshape([bsz, seq_len, nkvh, hd]).transpose(1, 2);
+        let q = self.q_proj.forward(x).reshape(&[bsz, seq_len, nqh, hd]).transpose(1, 2);
+        let k = self.k_proj.forward(x).reshape(&[bsz, seq_len, nkvh, hd]).transpose(1, 2);
+        let v = self.v_proj.forward(x).reshape(&[bsz, seq_len, nkvh, hd]).transpose(1, 2);
 
         // Apply QK normalization (per-head RMSNorm)
         let q = self.apply_head_norm(&q, &self.q_norm);
@@ -316,8 +309,8 @@ impl TextAttention {
 
         // Update KV cache
         let (k, v) = if let Some((past_k, past_v)) = kv_cache {
-            let k = Tensor::cat(&[past_k, &k], 2); // cat along seq dim
-            let v = Tensor::cat(&[past_v, &v], 2);
+            let k = Tensor::cat(&[past_k.clone(), k], 2);
+            let v = Tensor::cat(&[past_v.clone(), v], 2);
             (k, v)
         } else {
             (k, v)
@@ -338,19 +331,17 @@ impl TextAttention {
             attn_weights = attn_weights + m;
         }
 
-        let attn_weights = attn_weights.softmax(-1, Kind::Float).to_kind(x.kind());
+        let attn_weights = attn_weights.softmax(-1).to_dtype(x.kind());
         let out = attn_weights.matmul(&v);
 
         // Reshape and project output
-        let out = out.transpose(1, 2).reshape([bsz, seq_len, nqh * hd]);
+        let out = out.transpose(1, 2).reshape(&[bsz, seq_len, nqh * hd]);
         let out = self.o_proj.forward(&out);
 
         (out, new_cache)
     }
 
     fn apply_head_norm(&self, x: &Tensor, norm: &RmsNorm) -> Tensor {
-        // x shape: (bsz, num_heads, seq_len, head_dim)
-        // RMSNorm is applied per-head (on the last dim)
         norm.forward(x)
     }
 }
@@ -360,18 +351,14 @@ fn repeat_kv(x: &Tensor, n_rep: usize) -> Tensor {
     if n_rep == 1 {
         return x.shallow_clone();
     }
-    let (bsz, num_kv_heads, seq_len, head_dim) = x.size4().unwrap();
+    let (bsz, num_kv_heads, seq_len, head_dim) = x.size4();
     x.unsqueeze(2)
-        .expand([bsz, num_kv_heads, n_rep as i64, seq_len, head_dim], false)
-        .reshape([bsz, num_kv_heads * n_rep as i64, seq_len, head_dim])
+        .expand(&[bsz, num_kv_heads, n_rep as i64, seq_len, head_dim], false)
+        .reshape(&[bsz, num_kv_heads * n_rep as i64, seq_len, head_dim])
 }
 
 /// Apply rotary position embeddings.
-///
-/// x: (bsz, num_heads, seq_len, head_dim)
-/// cos, sin: (seq_len, head_dim)
 fn apply_rotary_emb(x: &Tensor, cos: &Tensor, sin: &Tensor) -> Tensor {
-    // cos/sin: (seq_len, head_dim) -> (1, 1, seq_len, head_dim)
     let cos = cos.unsqueeze(0).unsqueeze(0);
     let sin = sin.unsqueeze(0).unsqueeze(0);
 
@@ -380,12 +367,11 @@ fn apply_rotary_emb(x: &Tensor, cos: &Tensor, sin: &Tensor) -> Tensor {
 }
 
 /// Rotate half: split x into two halves and swap with negation.
-/// [x1, x2] -> [-x2, x1]
 fn rotate_half(x: &Tensor) -> Tensor {
     let half = x.size().last().unwrap() / 2;
     let x1 = x.narrow(-1, 0, half);
     let x2 = x.narrow(-1, half, half);
-    Tensor::cat(&[&(-&x2), &x1], -1)
+    Tensor::cat(&[(-&x2), x1], -1)
 }
 
 // ============================================================================
@@ -453,8 +439,6 @@ impl TextDecoderLayer {
         })
     }
 
-    /// Forward pass with KV cache.
-    /// Returns (output, new_kv_cache)
     pub fn forward(
         &self,
         x: &Tensor,
@@ -484,16 +468,13 @@ impl TextDecoderLayer {
 // ============================================================================
 
 /// Compute MRoPE cos/sin tensors for the given 3D position IDs.
-///
-/// position_ids: 3 vectors (temporal, height, width), each of length seq_len
-/// Returns: (cos, sin) each of shape (seq_len, head_dim)
 pub fn compute_mrope_cos_sin(
     position_ids: &[Vec<i64>; 3],
     head_dim: usize,
     rope_theta: f64,
     mrope_section: &[usize],
     interleaved: bool,
-    device: tch::Device,
+    device: Device,
 ) -> (Tensor, Tensor) {
     let half_dim = head_dim / 2;
     let seq_len = position_ids[0].len();
@@ -530,17 +511,16 @@ pub fn compute_mrope_cos_sin(
         }
     }
 
-    let cos = Tensor::from_slice(&cos_vals)
-        .reshape([seq_len as i64, head_dim as i64])
+    let cos = Tensor::from_slice_f32(&cos_vals)
+        .reshape(&[seq_len as i64, head_dim as i64])
         .to_device(device);
-    let sin = Tensor::from_slice(&sin_vals)
-        .reshape([seq_len as i64, head_dim as i64])
+    let sin = Tensor::from_slice_f32(&sin_vals)
+        .reshape(&[seq_len as i64, head_dim as i64])
         .to_device(device);
 
     (cos, sin)
 }
 
-/// Build a contiguous dim map: [0,0,...,0, 1,1,...,1, 2,2,...,2]
 fn build_contiguous_dim_map(sections: &[usize], total: usize) -> Vec<usize> {
     let mut map = Vec::with_capacity(total);
     for (dim, &size) in sections.iter().enumerate() {
@@ -551,15 +531,12 @@ fn build_contiguous_dim_map(sections: &[usize], total: usize) -> Vec<usize> {
             map.push(dim);
         }
     }
-    // Pad with last dim if needed
     while map.len() < total {
         map.push(sections.len() - 1);
     }
     map
 }
 
-/// Build an interleaved dim map: [0,1,2, 0,1,2, ..., 0,0,0,0]
-/// Cycles through dimensions round-robin until each dim's quota is filled.
 fn build_interleaved_dim_map(sections: &[usize], total: usize) -> Vec<usize> {
     let n_dims = sections.len();
     let mut map = Vec::with_capacity(total);
@@ -577,7 +554,7 @@ fn build_interleaved_dim_map(sections: &[usize], total: usize) -> Vec<usize> {
             }
         }
         if map.len() == prev_len {
-            break; // no progress (shouldn't happen if sum(sections) >= total)
+            break;
         }
     }
 

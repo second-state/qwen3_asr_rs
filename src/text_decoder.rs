@@ -1,6 +1,6 @@
 use anyhow::Result;
 use std::collections::HashMap;
-use tch::{Kind, Tensor};
+use crate::tensor::{DType, Device, Tensor};
 
 use crate::config::TextDecoderConfig;
 use crate::layers::{RmsNorm, TextDecoderLayer};
@@ -8,7 +8,6 @@ use crate::weights::get_weight;
 
 /// KV cache for autoregressive generation.
 pub struct KvCache {
-    /// Per-layer cache: (key, value) each (batch, num_kv_heads, seq_len, head_dim)
     pub layers: Vec<Option<(Tensor, Tensor)>>,
 }
 
@@ -29,7 +28,6 @@ impl KvCache {
         self.layers[layer] = Some(cache);
     }
 
-    /// Get the total cached sequence length (from first layer).
     pub fn seq_len(&self) -> i64 {
         self.layers[0]
             .as_ref()
@@ -39,12 +37,6 @@ impl KvCache {
 }
 
 /// Qwen3 Text Decoder model.
-///
-/// Architecture:
-/// - Token embedding (vocab_size -> hidden_size)
-/// - N decoder layers with GQA, QK-norm, MRoPE, SwiGLU MLP
-/// - Final RMSNorm
-/// - LM head (hidden_size -> vocab_size, tied with embedding)
 pub struct TextDecoder {
     embed_tokens: Tensor,
     layers: Vec<TextDecoderLayer>,
@@ -76,7 +68,6 @@ impl TextDecoder {
 
         let norm = RmsNorm::load(weights, &format!("{}.norm", prefix), config.rms_norm_eps)?;
 
-        // LM head weight: tied with embed_tokens if configured
         let lm_head_key = format!(
             "{}",
             prefix.replace(".model", ".lm_head")
@@ -96,19 +87,10 @@ impl TextDecoder {
         })
     }
 
-    /// Get token embeddings for the given input IDs.
     pub fn embed(&self, input_ids: &Tensor) -> Tensor {
-        Tensor::embedding(&self.embed_tokens, input_ids, -1, false, false)
+        Tensor::embedding(&self.embed_tokens, input_ids)
     }
 
-    /// Forward pass through the decoder.
-    ///
-    /// hidden_states: (batch, seq_len, hidden_size)
-    /// cos, sin: (seq_len, head_dim) for MRoPE
-    /// kv_cache: mutable KV cache for autoregressive generation
-    /// mask: causal attention mask
-    ///
-    /// Returns: logits of shape (batch, seq_len, vocab_size)
     pub fn forward(
         &self,
         hidden_states: &Tensor,
@@ -127,8 +109,6 @@ impl TextDecoder {
         }
 
         let hidden = self.norm.forward(&hidden);
-
-        // LM head: project to vocabulary
         hidden.matmul(&self.lm_head_weight.tr())
     }
 
@@ -138,18 +118,14 @@ impl TextDecoder {
 }
 
 /// Create a causal attention mask.
-/// Returns a mask where future positions are -inf, past positions are 0.
-pub fn create_causal_mask(seq_len: i64, past_len: i64, device: tch::Device) -> Tensor {
+pub fn create_causal_mask(seq_len: i64, past_len: i64, device: Device) -> Tensor {
     let total_len = past_len + seq_len;
-    // Create a full mask of -inf
     let mask = Tensor::full(
-        [seq_len, total_len],
+        &[seq_len, total_len],
         f64::NEG_INFINITY,
-        (Kind::Float, device),
+        DType::Float32,
+        device,
     );
-    // Create a lower-triangular mask
-    // For each query position q (0..seq_len), allow attention to positions 0..(past_len + q + 1)
     let mask = mask.triu(past_len + 1);
-    // Add batch and head dims: (1, 1, seq_len, total_len)
     mask.unsqueeze(0).unsqueeze(0)
 }

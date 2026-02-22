@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
-use tch::{Device, Tensor};
+use crate::tensor::{Device, Tensor};
 
 /// Load all tensors from a model directory.
 ///
@@ -57,8 +57,10 @@ fn load_sharded_safetensors(index_path: &Path, device: Device) -> Result<HashMap
     Ok(all_weights)
 }
 
-/// Load all tensors from a single safetensors file, converting bf16 to f32.
+/// Load all tensors from a single safetensors file.
+#[cfg(feature = "tch-backend")]
 pub fn load_safetensors(path: &Path, device: Device) -> Result<HashMap<String, Tensor>> {
+    let tch_device = tch::Device::from(device);
     let data =
         std::fs::read(path).with_context(|| format!("Failed to read safetensors: {:?}", path))?;
     let tensors = safetensors::SafeTensors::deserialize(&data)
@@ -71,15 +73,19 @@ pub fn load_safetensors(path: &Path, device: Device) -> Result<HashMap<String, T
         let tensor = match view.dtype() {
             safetensors::Dtype::BF16 => {
                 let f32_data = bf16_bytes_to_f32(view.data());
-                Tensor::from_slice(&f32_data)
-                    .reshape(&shape)
-                    .to_device(device)
+                Tensor::from_tch(
+                    tch::Tensor::from_slice(&f32_data)
+                        .reshape(&shape)
+                        .to_device(tch_device),
+                )
             }
             safetensors::Dtype::F16 => {
                 let f32_data = f16_bytes_to_f32(view.data());
-                Tensor::from_slice(&f32_data)
-                    .reshape(&shape)
-                    .to_device(device)
+                Tensor::from_tch(
+                    tch::Tensor::from_slice(&f32_data)
+                        .reshape(&shape)
+                        .to_device(tch_device),
+                )
             }
             safetensors::Dtype::F32 => {
                 let f32_data: Vec<f32> = view
@@ -87,9 +93,11 @@ pub fn load_safetensors(path: &Path, device: Device) -> Result<HashMap<String, T
                     .chunks(4)
                     .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
                     .collect();
-                Tensor::from_slice(&f32_data)
-                    .reshape(&shape)
-                    .to_device(device)
+                Tensor::from_tch(
+                    tch::Tensor::from_slice(&f32_data)
+                        .reshape(&shape)
+                        .to_device(tch_device),
+                )
             }
             safetensors::Dtype::I64 => {
                 let i64_data: Vec<i64> = view
@@ -97,9 +105,11 @@ pub fn load_safetensors(path: &Path, device: Device) -> Result<HashMap<String, T
                     .chunks(8)
                     .map(|c| i64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]))
                     .collect();
-                Tensor::from_slice(&i64_data)
-                    .reshape(&shape)
-                    .to_device(device)
+                Tensor::from_tch(
+                    tch::Tensor::from_slice(&i64_data)
+                        .reshape(&shape)
+                        .to_device(tch_device),
+                )
             }
             dt => anyhow::bail!("Unsupported dtype in safetensors: {:?}", dt),
         };
@@ -109,17 +119,29 @@ pub fn load_safetensors(path: &Path, device: Device) -> Result<HashMap<String, T
     Ok(result)
 }
 
+/// Load all tensors from a single safetensors file (MLX backend).
+#[cfg(feature = "mlx")]
+pub fn load_safetensors(path: &Path, _device: Device) -> Result<HashMap<String, Tensor>> {
+    let map = crate::backend::mlx::io::load_safetensors(path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    Ok(map
+        .into_iter()
+        .map(|(name, arr)| (name, Tensor::from_mlx(arr)))
+        .collect())
+}
+
+#[cfg(feature = "tch-backend")]
 fn bf16_bytes_to_f32(bytes: &[u8]) -> Vec<f32> {
     bytes
         .chunks(2)
         .map(|chunk| {
             let bits = u16::from_le_bytes([chunk[0], chunk[1]]);
-            // BF16 to F32: shift mantissa+exponent left by 16 bits
             f32::from_bits((bits as u32) << 16)
         })
         .collect()
 }
 
+#[cfg(feature = "tch-backend")]
 fn f16_bytes_to_f32(bytes: &[u8]) -> Vec<f32> {
     bytes
         .chunks(2)
@@ -130,6 +152,7 @@ fn f16_bytes_to_f32(bytes: &[u8]) -> Vec<f32> {
         .collect()
 }
 
+#[cfg(feature = "tch-backend")]
 fn half_to_float(half: u16) -> f32 {
     let sign = ((half >> 15) & 1) as u32;
     let exponent = ((half >> 10) & 0x1F) as u32;
@@ -139,7 +162,6 @@ fn half_to_float(half: u16) -> f32 {
         if mantissa == 0 {
             f32::from_bits(sign << 31)
         } else {
-            // Subnormal
             let mut e = exponent;
             let mut m = mantissa;
             while (m & 0x400) == 0 {
@@ -151,7 +173,6 @@ fn half_to_float(half: u16) -> f32 {
             f32::from_bits((sign << 31) | (e << 23) | (m << 13))
         }
     } else if exponent == 31 {
-        // Inf or NaN
         f32::from_bits((sign << 31) | (0xFF << 23) | (mantissa << 13))
     } else {
         let e = exponent + (127 - 15);
