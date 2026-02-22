@@ -97,6 +97,9 @@ jobs:
         run: |
           mkdir ${{ matrix.asset-name }}
           cp target/release/asr ${{ matrix.asset-name }}/asr
+          if [ "${{ matrix.backend }}" = "mlx" ]; then
+            cp target/release/build/qwen3_asr-*/out/lib/mlx.metallib ${{ matrix.asset-name }}/
+          fi
           zip -r ${{ matrix.asset-name }}.zip ${{ matrix.asset-name }}
 
       - name: Upload release asset

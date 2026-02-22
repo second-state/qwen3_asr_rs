@@ -100,6 +100,10 @@ download_binary() {
     unzip -q "${temp_dir}/${zip_name}" -d "${temp_dir}"
     cp "${temp_dir}/${asset_name}/asr" "${SCRIPTS_DIR}/asr"
     chmod +x "${SCRIPTS_DIR}/asr"
+    # Copy mlx.metallib if present (macOS MLX backend)
+    if [ -f "${temp_dir}/${asset_name}/mlx.metallib" ]; then
+        cp "${temp_dir}/${asset_name}/mlx.metallib" "${SCRIPTS_DIR}/mlx.metallib"
+    fi
 
     rm -rf "$temp_dir"
     echo "Binary installed to ${SCRIPTS_DIR}/asr" >&2
