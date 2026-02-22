@@ -16,6 +16,12 @@ jobs:
             asset-name: asr-linux-x86_64
             libtorch-url: https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcpu.zip
             libtorch-archive: libtorch.zip
+          - os: ubuntu-latest
+            name: Linux x86_64 (CUDA)
+            backend: tch
+            asset-name: asr-linux-x86_64-cuda
+            libtorch-url: https://download.pytorch.org/libtorch/cu128/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcu128.zip
+            libtorch-archive: libtorch.zip
           - os: ubuntu-24.04-arm
             name: Linux ARM64
             backend: tch
