@@ -1,6 +1,6 @@
 #!/bin/bash
 # Bootstrap script for Qwen3 ASR skill
-# Downloads platform-specific binary, libtorch (Linux only), and models
+# Downloads platform-specific binary, libtorch (Linux only), and model
 
 set -e
 
@@ -33,12 +33,30 @@ detect_platform() {
     echo "${os}-${arch}"
 }
 
+detect_cuda() {
+    # Check for NVIDIA GPU and CUDA toolkit
+    if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then
+        return 0
+    fi
+    if command -v nvcc &>/dev/null; then
+        return 0
+    fi
+    if [ -d "/usr/local/cuda" ]; then
+        return 0
+    fi
+    return 1
+}
+
 get_asset_name() {
     local platform="$1"
 
     case "$platform" in
     linux-x86_64)
-        echo "asr-linux-x86_64"
+        if detect_cuda; then
+            echo "asr-linux-x86_64-cuda"
+        else
+            echo "asr-linux-x86_64"
+        fi
         ;;
     linux-aarch64)
         echo "asr-linux-aarch64"
@@ -89,6 +107,7 @@ download_binary() {
 
 download_libtorch() {
     local platform="$1"
+    local asset_name="$2"
 
     # macOS uses MLX backend — no libtorch needed
     if [[ "$platform" == darwin-* ]]; then
@@ -101,17 +120,21 @@ download_libtorch() {
     local libtorch_url=""
     local archive_name=""
 
-    case "$platform" in
-    linux-x86_64)
+    case "$asset_name" in
+    asr-linux-x86_64)
         libtorch_url="https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcpu.zip"
         archive_name="libtorch.zip"
         ;;
-    linux-aarch64)
+    asr-linux-x86_64-cuda)
+        libtorch_url="https://download.pytorch.org/libtorch/cu128/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcu128.zip"
+        archive_name="libtorch.zip"
+        ;;
+    asr-linux-aarch64)
         libtorch_url="https://github.com/second-state/libtorch-releases/releases/download/v2.7.1/libtorch-cxx11-abi-aarch64-2.7.1.tar.gz"
         archive_name="libtorch.tar.gz"
         ;;
     *)
-        echo "Error: No libtorch URL for platform ${platform}" >&2
+        echo "Error: No libtorch URL for asset ${asset_name}" >&2
         exit 1
         ;;
     esac
@@ -181,7 +204,7 @@ main() {
     echo "Asset: ${asset_name}" >&2
 
     download_binary "$asset_name"
-    download_libtorch "$platform"
+    download_libtorch "$platform" "$asset_name"
     download_models
 
     echo "" >&2
