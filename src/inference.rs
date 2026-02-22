@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use std::path::Path;
-use tch::{Device, Tensor};
+use crate::tensor::{Device, Tensor};
 
 use crate::audio;
 use crate::audio_encoder::AudioEncoder;
@@ -86,10 +86,8 @@ impl AsrInference {
     }
 
     /// Transcribe an audio file.
-    ///
-    /// Returns the transcribed text and detected language.
     pub fn transcribe(&self, audio_path: &str, language: Option<&str>) -> Result<TranscribeResult> {
-        // Step 1: Load and preprocess audio (ffmpeg decodes any format to mono 16kHz f32)
+        // Step 1: Load and preprocess audio
         tracing::info!("Loading audio from {}", audio_path);
         let samples = audio::load_audio(audio_path, MEL_SAMPLE_RATE)?;
 
@@ -110,7 +108,7 @@ impl AsrInference {
 
         // Step 5: Build embeddings with audio injection
         let input_tensor =
-            Tensor::from_slice(&input_ids).to_device(self.device);
+            Tensor::from_slice_i64(&input_ids).to_device(self.device);
         let mut hidden_states = self.text_decoder.embed(&input_tensor).unsqueeze(0);
 
         // Replace audio_pad positions with audio encoder embeddings
@@ -125,7 +123,7 @@ impl AsrInference {
             );
         }
 
-        // Step 6: Build MRoPE position IDs (all 3 dims sequential)
+        // Step 6: Build MRoPE position IDs
         let position_ids = self.build_position_ids(&input_ids);
 
         let text_config = &self.config.thinker_config.text_config;
@@ -138,7 +136,7 @@ impl AsrInference {
             self.device,
         );
 
-        // Step 7: Prefill - run all prompt tokens through decoder
+        // Step 7: Prefill
         let mask = create_causal_mask(seq_len as i64, 0, self.device);
         let mut kv_cache = KvCache::new(text_config.num_hidden_layers);
 
@@ -155,27 +153,22 @@ impl AsrInference {
         let max_new_tokens = 4096;
         let eos_token_ids = vec![ENDOFTEXT_TOKEN_ID, IM_END_TOKEN_ID];
 
-        // Get the last token's logits for the first prediction
         let mut next_logits = logits.narrow(1, seq_len as i64 - 1, 1).squeeze_dim(1);
 
         let mut current_pos = position_ids[0].len();
 
         for _ in 0..max_new_tokens {
-            // Greedy decoding
             let next_token = next_logits.argmax(-1, false).int64_value(&[0]);
 
-            // Check for EOS
             if eos_token_ids.contains(&next_token) {
                 break;
             }
 
             generated_ids.push(next_token);
 
-            // Prepare next step
-            let next_input = Tensor::from_slice(&[next_token]).to_device(self.device);
+            let next_input = Tensor::from_slice_i64(&[next_token]).to_device(self.device);
             let next_hidden = self.text_decoder.embed(&next_input).unsqueeze(0);
 
-            // Position IDs for new token (all 3 dims same)
             let new_pos_ids: [Vec<i64>; 3] = [
                 vec![current_pos as i64],
                 vec![current_pos as i64],
@@ -219,14 +212,6 @@ impl AsrInference {
         })
     }
 
-    /// Build the prompt token sequence for ASR.
-    ///
-    /// Official format:
-    /// PREFIX: <|im_start|>system\n<|im_end|>\n<|im_start|>user\n<|audio_start|>
-    /// AUDIO:  <|audio_pad|> * num_audio_tokens
-    /// SUFFIX: <|audio_end|><|im_end|>\n<|im_start|>assistant\n
-    ///
-    /// Returns: (token_ids, audio_pad_positions)
     fn build_prompt(
         &self,
         num_audio_tokens: usize,
@@ -244,7 +229,6 @@ impl AsrInference {
             151669, // <|audio_start|>
         ];
 
-        // Record audio pad positions
         let audio_start_pos = tokens.len();
         for _ in 0..num_audio_tokens {
             tokens.push(AUDIO_PAD_TOKEN_ID);
@@ -252,7 +236,6 @@ impl AsrInference {
         let audio_positions: Vec<usize> =
             (audio_start_pos..audio_start_pos + num_audio_tokens).collect();
 
-        // Suffix tokens
         tokens.extend_from_slice(&[
             151670, // <|audio_end|>
             151645, // <|im_end|>
@@ -273,11 +256,6 @@ impl AsrInference {
         Ok((tokens, audio_positions))
     }
 
-    /// Build 3D MRoPE position IDs for the input sequence.
-    ///
-    /// All 3 dims use the same sequential positions [0, 1, 2, ..., N-1].
-    /// This matches the Python model's get_rope_index which simply uses
-    /// attention_mask.cumsum(-1) - 1 for all 3 dims.
     fn build_position_ids(
         &self,
         input_ids: &[i64],
@@ -295,10 +273,6 @@ pub struct TranscribeResult {
     pub raw_output: String,
 }
 
-/// Parse the model's raw output to extract language and transcription.
-///
-/// Expected format: "language {Language}<asr_text>{transcription}"
-/// When language is forced, format is just: "{transcription}"
 fn parse_asr_output(raw: &str, language_forced: bool) -> (String, String) {
     if language_forced {
         return ("forced".to_string(), raw.trim().to_string());
@@ -312,7 +286,6 @@ fn parse_asr_output(raw: &str, language_forced: bool) -> (String, String) {
             let text = rest[asr_pos + "<asr_text>".len()..].trim().to_string();
             return (lang, text);
         }
-        // Fallback: split at first non-alpha char after language name
         let mut lang_end = 0;
         for (i, c) in rest.char_indices() {
             if c.is_whitespace() || !c.is_alphabetic() {

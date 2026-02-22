@@ -20,6 +20,7 @@ pub enum AsrError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
+    #[cfg(feature = "tch-backend")]
     #[error("Torch error: {0}")]
     Torch(#[from] tch::TchError),
 

@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use std::path::Path;
-use tch::Device;
 
+use qwen3_asr::tensor::Device;
 use qwen3_asr::inference::AsrInference;
 
 fn main() -> Result<()> {
@@ -28,6 +28,7 @@ fn main() -> Result<()> {
         eprintln!("The audio file will be automatically converted to mono 16kHz f32 for the model.");
         eprintln!();
         eprintln!("Environment variables:");
+        #[cfg(feature = "tch-backend")]
         eprintln!("  LIBTORCH     Path to libtorch installation");
         eprintln!("  RUST_LOG     Set logging level (e.g., info, debug, trace)");
         std::process::exit(1);
@@ -47,12 +48,20 @@ fn main() -> Result<()> {
     }
 
     // Select device
+    #[cfg(feature = "tch-backend")]
     let device = if tch::Cuda::is_available() {
         tracing::info!("Using CUDA device");
-        Device::Cuda(0)
+        Device::Gpu(0)
     } else {
         tracing::info!("Using CPU device");
         Device::Cpu
+    };
+
+    #[cfg(feature = "mlx")]
+    let device = {
+        qwen3_asr::backend::mlx::stream::init_mlx(true);
+        tracing::info!("Using MLX Metal GPU");
+        Device::Gpu(0)
     };
 
     // Load model

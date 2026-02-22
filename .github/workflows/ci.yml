@@ -12,22 +12,34 @@ jobs:
         include:
           - os: ubuntu-latest
             name: Linux x86_64
+            backend: tch
             libtorch-url: https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcpu.zip
             libtorch-archive: libtorch.zip
           - os: ubuntu-24.04-arm
             name: Linux ARM64
+            backend: tch
             libtorch-url: https://github.com/second-state/libtorch-releases/releases/download/v2.7.1/libtorch-cxx11-abi-aarch64-2.7.1.tar.gz
             libtorch-archive: libtorch.tar.gz
           - os: macos-latest
-            name: macOS ARM64
+            name: macOS ARM64 (tch)
+            backend: tch
             libtorch-url: https://download.pytorch.org/libtorch/cpu/libtorch-macos-arm64-2.7.1.zip
             libtorch-archive: libtorch.zip
+          - os: macos-latest
+            name: macOS ARM64 (mlx)
+            backend: mlx
 
     runs-on: ${{ matrix.os }}
     name: Build (${{ matrix.name }})
 
     steps:
       - uses: actions/checkout@v4
+        if: matrix.backend == 'tch'
+
+      - uses: actions/checkout@v4
+        if: matrix.backend == 'mlx'
+        with:
+          submodules: recursive
 
       - name: Install build tools (Linux)
         if: runner.os == 'Linux'
@@ -42,14 +54,16 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.backend }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-cargo-registry-
+            ${{ runner.os }}-${{ runner.arch }}-${{ matrix.backend }}-cargo-registry-
 
       - name: Download libtorch
+        if: matrix.backend == 'tch'
         run: curl -Lo ${{ matrix.libtorch-archive }} "${{ matrix.libtorch-url }}"
 
       - name: Extract libtorch
+        if: matrix.backend == 'tch'
         run: |
           if [[ "${{ matrix.libtorch-archive }}" == *.zip ]]; then
             unzip -q ${{ matrix.libtorch-archive }}
@@ -58,20 +72,25 @@ jobs:
           fi
 
       - name: Set linker rpath-link (Linux only)
-        if: runner.os == 'Linux'
+        if: matrix.backend == 'tch' && runner.os == 'Linux'
         run: echo "RUSTFLAGS=-C link-arg=-Wl,-rpath-link,${{ github.workspace }}/libtorch/lib" >> "$GITHUB_ENV"
 
       - name: Cap libtorch CPU ISA to AVX2 (x86_64 only)
-        if: runner.arch == 'X64'
+        if: matrix.backend == 'tch' && runner.arch == 'X64'
         run: |
           echo "DNNL_MAX_CPU_ISA=AVX2" >> "$GITHUB_ENV"
           echo "ATEN_CPU_CAPABILITY=avx2" >> "$GITHUB_ENV"
 
-      - name: Build
+      - name: Build (tch)
+        if: matrix.backend == 'tch'
         env:
           LIBTORCH: ${{ github.workspace }}/libtorch
           LIBTORCH_BYPASS_VERSION_CHECK: "1"
         run: cargo build --release --features build-ffmpeg
+
+      - name: Build (mlx)
+        if: matrix.backend == 'mlx'
+        run: cargo build --release --no-default-features --features mlx,build-ffmpeg
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -82,11 +101,11 @@ jobs:
         run: pip install huggingface_hub transformers
 
       - name: Set library path (Linux)
-        if: runner.os == 'Linux'
+        if: matrix.backend == 'tch' && runner.os == 'Linux'
         run: echo "LD_LIBRARY_PATH=${{ github.workspace }}/libtorch/lib:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
 
       - name: Set library path (macOS)
-        if: runner.os == 'macOS'
+        if: matrix.backend == 'tch' && runner.os == 'macOS'
         run: echo "DYLD_LIBRARY_PATH=${{ github.workspace }}/libtorch/lib:$DYLD_LIBRARY_PATH" >> "$GITHUB_ENV"
 
       - name: Cache 0.6B model weights
@@ -146,5 +165,5 @@ jobs:
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
-          name: qwen3-asr-${{ matrix.os }}-${{ runner.arch }}.zip
+          name: qwen3-asr-${{ matrix.os }}-${{ runner.arch }}-${{ matrix.backend }}.zip
           path: target/release/asr

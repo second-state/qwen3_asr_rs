@@ -1,6 +1,6 @@
 # Qwen3 ASR Rust
 
-Pure Rust implementation of [Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR) automatic speech recognition using libtorch. Loads model weights directly from safetensors files and re-implements the complete neural network forward pass in Rust.
+Pure Rust implementation of [Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR) automatic speech recognition. Supports two backends: **libtorch** (via the `tch` crate, cross-platform with optional CUDA) and **MLX** (Apple Silicon native via Metal GPU). Loads model weights directly from safetensors files and re-implements the complete neural network forward pass in Rust.
 
 ## Architecture
 
@@ -19,7 +19,16 @@ The implementation ports the Qwen3-ASR encoder-decoder architecture from PyTorch
 
 ## Prerequisites
 
-### libtorch
+### Backend
+
+Choose one backend:
+
+| Backend | Feature flag | Platforms | GPU |
+|---------|-------------|-----------|-----|
+| libtorch | `tch-backend` (default) | Linux, macOS, Windows | CUDA |
+| MLX | `mlx` | macOS Apple Silicon | Metal |
+
+### libtorch (for `tch-backend`)
 
 The `tch` crate (v0.20) requires **libtorch 2.7.1**. Download and extract for your platform:
 
@@ -77,6 +86,8 @@ tok.backend_tokenizer.save('Qwen3-ASR-0.6B/tokenizer.json')
 
 ## Build
 
+### libtorch backend (default)
+
 ```bash
 # Set environment
 export LIBTORCH=$(pwd)/libtorch
@@ -92,6 +103,19 @@ cargo build --release --features static-ffmpeg
 
 # Build FFmpeg from source and link statically (most self-contained)
 cargo build --release --features build-ffmpeg
+```
+
+### MLX backend (macOS Apple Silicon)
+
+```bash
+# Initialize mlx-c submodule
+git submodule update --init --recursive
+
+# Build with MLX (no libtorch needed)
+cargo build --release --no-default-features --features mlx
+
+# With statically linked FFmpeg
+cargo build --release --no-default-features --features mlx,static-ffmpeg
 ```
 
 ## Usage
@@ -134,6 +158,7 @@ Qwen3-ASR supports 30 languages: Chinese, English, Cantonese, Arabic, German, Fr
 src/
 ├── main.rs            # CLI binary entry point
 ├── lib.rs             # Library module declarations
+├── tensor.rs          # Unified Tensor abstraction (tch/MLX backend)
 ├── config.rs          # Model configuration (from config.json)
 ├── error.rs           # Error types
 ├── audio.rs           # FFmpeg-based audio loading and format conversion
@@ -144,7 +169,15 @@ src/
 ├── audio_encoder.rs   # Whisper-style audio encoder (Conv2d + Transformer)
 ├── text_decoder.rs    # Qwen3 text decoder with KV cache
 ├── tokenizer.rs       # HuggingFace tokenizer wrapper
-└── inference.rs       # End-to-end ASR inference pipeline
+├── inference.rs       # End-to-end ASR inference pipeline
+└── backend/
+    └── mlx/           # Apple MLX backend (Metal GPU)
+        ├── ffi.rs     # Raw C FFI bindings to mlx-c
+        ├── array.rs   # Safe RAII MlxArray wrapper
+        ├── ops.rs     # Safe operation wrappers
+        ├── io.rs      # Safetensors loading via mlx-c
+        ├── signal.rs  # STFT, mel spectrogram signal processing
+        └── stream.rs  # Device/stream management
 ```
 
 ## License

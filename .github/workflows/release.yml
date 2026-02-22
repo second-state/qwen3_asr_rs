@@ -12,19 +12,26 @@ jobs:
         include:
           - os: ubuntu-latest
             name: Linux x86_64
+            backend: tch
             asset-name: asr-linux-x86_64
             libtorch-url: https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcpu.zip
             libtorch-archive: libtorch.zip
+          - os: ubuntu-latest
+            name: Linux x86_64 (CUDA)
+            backend: tch
+            asset-name: asr-linux-x86_64-cuda
+            libtorch-url: https://download.pytorch.org/libtorch/cu128/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcu128.zip
+            libtorch-archive: libtorch.zip
           - os: ubuntu-24.04-arm
             name: Linux ARM64
+            backend: tch
             asset-name: asr-linux-aarch64
             libtorch-url: https://github.com/second-state/libtorch-releases/releases/download/v2.7.1/libtorch-cxx11-abi-aarch64-2.7.1.tar.gz
             libtorch-archive: libtorch.tar.gz
           - os: macos-latest
             name: macOS ARM64
+            backend: mlx
             asset-name: asr-macos-aarch64
-            libtorch-url: https://download.pytorch.org/libtorch/cpu/libtorch-macos-arm64-2.7.1.zip
-            libtorch-archive: libtorch.zip
 
     runs-on: ${{ matrix.os }}
     name: Build (${{ matrix.name }})
@@ -34,6 +41,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        if: matrix.backend == 'tch'
+
+      - uses: actions/checkout@v4
+        if: matrix.backend == 'mlx'
+        with:
+          submodules: recursive
 
       - name: Install build tools (Linux)
         if: runner.os == 'Linux'
@@ -48,14 +61,16 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.backend }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-cargo-registry-
+            ${{ runner.os }}-${{ runner.arch }}-${{ matrix.backend }}-cargo-registry-
 
       - name: Download libtorch
+        if: matrix.backend == 'tch'
         run: curl -Lo ${{ matrix.libtorch-archive }} "${{ matrix.libtorch-url }}"
 
       - name: Extract libtorch
+        if: matrix.backend == 'tch'
         run: |
           if [[ "${{ matrix.libtorch-archive }}" == *.zip ]]; then
             unzip -q ${{ matrix.libtorch-archive }}
@@ -64,19 +79,25 @@ jobs:
           fi
 
       - name: Set linker rpath-link (Linux only)
-        if: runner.os == 'Linux'
+        if: matrix.backend == 'tch' && runner.os == 'Linux'
         run: echo "RUSTFLAGS=-C link-arg=-Wl,-rpath-link,${{ github.workspace }}/libtorch/lib" >> "$GITHUB_ENV"
 
-      - name: Build
+      - name: Build (tch)
+        if: matrix.backend == 'tch'
         env:
           LIBTORCH: ${{ github.workspace }}/libtorch
           LIBTORCH_BYPASS_VERSION_CHECK: "1"
         run: cargo build --release --features build-ffmpeg
 
+      - name: Build (mlx)
+        if: matrix.backend == 'mlx'
+        run: cargo build --release --no-default-features --features mlx,build-ffmpeg
+
       - name: Package binary
         run: |
-          cp target/release/asr ${{ matrix.asset-name }}
-          zip ${{ matrix.asset-name }}.zip ${{ matrix.asset-name }}
+          mkdir ${{ matrix.asset-name }}
+          cp target/release/asr ${{ matrix.asset-name }}/asr
+          zip -r ${{ matrix.asset-name }}.zip ${{ matrix.asset-name }}
 
       - name: Upload release asset
         env:

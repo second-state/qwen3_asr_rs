@@ -189,6 +189,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmake"
+version = "0.1.57"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75443c44cd6b379beb8c5b45d85d0773baf31cce901fe7bb252f4eff3008ef7d"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "compact_str"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -908,6 +917,7 @@ name = "qwen3_asr"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cmake",
  "ffmpeg-next",
  "ffmpeg-sys-next",
  "hound",
