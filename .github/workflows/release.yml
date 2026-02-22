@@ -42,16 +42,15 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo registry and build
+      - name: Cache cargo registry
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-cargo-release-
+            ${{ runner.os }}-${{ runner.arch }}-cargo-registry-
 
       - name: Download libtorch
         run: curl -Lo ${{ matrix.libtorch-archive }} "${{ matrix.libtorch-url }}"
