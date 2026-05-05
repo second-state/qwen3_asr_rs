@@ -94,8 +94,8 @@ impl AsrInference {
 
         // Step 2: Compute mel spectrogram
         let mel = self.mel_extractor.extract(&samples, self.device)?;
-        let num_mel_frames = mel.size()[1] as usize;
-        tracing::info!("Mel spectrogram: {} frames", num_mel_frames);
+        let _num_mel_frames = mel.size()[1] as usize;
+        tracing::info!("Mel spectrogram: {} frames", _num_mel_frames);
 
         // Step 3: Run audio encoder
         let audio_embeds = self.audio_encoder.forward(&mel);
@@ -304,5 +304,122 @@ fn capitalize_first(s: &str) -> String {
     match chars.next() {
         None => String::new(),
         Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+    }
+}
+
+impl AsrInference {
+    /// Transcribe pre-loaded audio samples (must be 16kHz mono f32).
+    pub fn transcribe_samples(
+        &self,
+        samples: &[f32],
+        language: Option<&str>,
+    ) -> Result<TranscribeResult> {
+        let duration_seconds = samples.len() as f64 / MEL_SAMPLE_RATE as f64;
+
+        let mel = self.mel_extractor.extract(samples, self.device)?;
+        let _num_mel_frames = mel.size()[1] as usize;
+
+        let audio_embeds = self.audio_encoder.forward(&mel);
+        audio_embeds.eval();
+        let num_audio_tokens = audio_embeds.size()[0] as usize;
+
+        let (input_ids, audio_positions) =
+            self.build_prompt(num_audio_tokens, language)?;
+        let seq_len = input_ids.len();
+
+        let input_tensor =
+            Tensor::from_slice_i64(&input_ids).to_device(self.device);
+        let mut hidden_states = self.text_decoder.embed(&input_tensor).unsqueeze(0);
+
+        for (embed_idx, &seq_pos) in audio_positions.iter().enumerate() {
+            let audio_embed = audio_embeds.get(embed_idx as i64);
+            hidden_states = hidden_states.slice_scatter(
+                &audio_embed.unsqueeze(0).unsqueeze(0),
+                1,
+                seq_pos as i64,
+                seq_pos as i64 + 1,
+                1,
+            );
+        }
+
+        let text_config = &self.config.thinker_config.text_config;
+        let max_total_positions = seq_len + 512;
+        let all_positions: Vec<i64> = (0..max_total_positions as i64).collect();
+        let all_pos_ids: [Vec<i64>; 3] = [
+            all_positions.clone(),
+            all_positions.clone(),
+            all_positions,
+        ];
+        let (all_cos, all_sin) = compute_mrope_cos_sin(
+            &all_pos_ids,
+            text_config.head_dim,
+            text_config.rope_theta,
+            &text_config.mrope_section(),
+            text_config.mrope_interleaved(),
+            self.device,
+        );
+
+        let cos = all_cos.narrow(0, 0, seq_len as i64);
+        let sin = all_sin.narrow(0, 0, seq_len as i64);
+
+        let mask = create_causal_mask(seq_len as i64, 0, self.device);
+        let mut kv_cache = KvCache::new(text_config.num_hidden_layers);
+
+        let logits = self.text_decoder.forward(
+            &hidden_states,
+            &cos,
+            &sin,
+            &mut kv_cache,
+            Some(&mask),
+        );
+        logits.eval();
+
+        let mut generated_ids: Vec<i64> = Vec::new();
+        let eos_token_ids = vec![ENDOFTEXT_TOKEN_ID, IM_END_TOKEN_ID];
+
+        let mut next_logits = logits.narrow(1, seq_len as i64 - 1, 1).squeeze_dim(1);
+
+        for step in 0..512 {
+            let offset = seq_len + step;
+            let cos_t = all_cos.narrow(0, offset as i64, 1);
+            let sin_t = all_sin.narrow(0, offset as i64, 1);
+
+            next_logits.eval();
+            let next_token = next_logits.argmax(-1, false);
+            let next_token_id: i64 = next_token.int64_value(&[]);
+            generated_ids.push(next_token_id);
+
+            if eos_token_ids.contains(&next_token_id) {
+                break;
+            }
+
+            let position_ids = Vec::from([offset as i64]);
+            let input_idx = Tensor::from_slice_i64(&position_ids).to_device(self.device);
+            let embed = self.text_decoder.embed(&input_idx).unsqueeze(0);
+
+            let mask = create_causal_mask(1, offset as i64, self.device);
+            next_logits = self.text_decoder.forward(
+                &embed,
+                &cos_t,
+                &sin_t,
+                &mut kv_cache,
+                Some(&mask),
+            );
+            next_logits = next_logits.squeeze_dim(1);
+        }
+
+        let raw_output = self.tokenizer.decode(&generated_ids)?;
+        let (language, text) = if language.is_some() {
+            ("forced".to_string(), raw_output.trim().to_string())
+        } else {
+            parse_asr_output(&raw_output, false)
+        };
+
+        Ok(TranscribeResult {
+            text,
+            language,
+            raw_output,
+            duration_seconds,
+        })
     }
 }

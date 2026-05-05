@@ -15,8 +15,16 @@ path = "src/main.rs"
 name = "asr-server"
 path = "src/bin/server.rs"
 
+[[bin]]
+name = "gui"
+path = "src/bin/gui.rs"
+
 [dependencies]
-tch = { version = "0.20", optional = true }
+gpui = { git = "https://github.com/zed-industries/zed" }
+gpui_platform = { git = "https://github.com/zed-industries/zed" }
+cpal = "0.17.3"
+arboard = "3.6.1"
+tch = { version = "0.20", optional = true, features = ["download-libtorch"] }
 tokenizers = "0.21"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

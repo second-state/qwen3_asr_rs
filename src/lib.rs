@@ -19,3 +19,4 @@ pub mod mel;
 pub mod text_decoder;
 pub mod tokenizer;
 pub mod weights;
+pub mod capture;
