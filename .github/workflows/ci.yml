@@ -3,6 +3,7 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 jobs:
   build:
@@ -38,7 +39,7 @@ jobs:
 
       - name: Install build tools (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y pkg-config
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libxkbcommon-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxcb1-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev libasound2-dev
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -112,28 +113,22 @@ jobs:
         run: |
           ./target/release/asr-server --model-dir Qwen3-ASR-0.6B --port 8099 &
           SERVER_PID=$!
-          # Wait for server to be ready
           for i in $(seq 1 30); do
             if curl -s http://localhost:8099/health > /dev/null 2>&1; then break; fi
             sleep 1
           done
-          # Test health endpoint
           curl -sf http://localhost:8099/health | grep -q '"ok"'
           echo "Health check passed"
-          # Test models endpoint
           curl -sf http://localhost:8099/v1/models | grep -q '"qwen3-asr"'
           echo "Models endpoint passed"
-          # Test transcription (json)
           RESULT=$(curl -sf -X POST http://localhost:8099/v1/audio/transcriptions -F file=@test_audio/sample1.wav)
           echo "Transcription result: $RESULT"
           echo "$RESULT" | grep -qi "thank you"
           echo "JSON transcription passed"
-          # Test transcription (text)
           RESULT=$(curl -sf -X POST http://localhost:8099/v1/audio/transcriptions -F file=@test_audio/sample1.wav -F response_format=text)
           echo "Text result: $RESULT"
           echo "$RESULT" | grep -qi "thank you"
           echo "Text transcription passed"
-          # Test transcription (verbose_json)
           RESULT=$(curl -sf -X POST http://localhost:8099/v1/audio/transcriptions -F file=@test_audio/sample1.wav -F response_format=verbose_json)
           echo "Verbose result: $RESULT"
           echo "$RESULT" | grep -q '"duration"'
@@ -162,8 +157,11 @@ jobs:
       - name: "[1.7B] Transcribe sample3 (Chinese)"
         run: ./target/release/asr Qwen3-ASR-1.7B test_audio/sample3.wav
 
-      - name: Upload binary
+      - name: Upload binaries
         uses: actions/upload-artifact@v4
         with:
-          name: qwen3-asr-${{ matrix.os }}-${{ runner.arch }}-${{ matrix.backend }}.zip
-          path: target/release/asr
+          name: qwen3-asr-${{ matrix.name }}
+          path: |
+            target/release/asr
+            target/release/asr-server
+            target/release/gui
