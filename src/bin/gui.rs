@@ -387,13 +387,12 @@ impl VoiceInputApp {
                         let _ = child.wait();
                     }
                 }
-                #[cfg(target_os = "windows")]
+                #[cfg(not(target_os = "linux"))]
                 {
-                    // TODO: SendInput / keybd_event simulation
-                }
-                #[cfg(target_os = "macos")]
-                {
-                    // TODO: CGEvent simulation
+                    use enigo::{Enigo, Keyboard, Settings};
+                    if let Ok(mut enigo) = Enigo::new(&Settings::default()) {
+                        let _ = enigo.text(self.transcribed_text.as_ref());
+                    }
                 }
             }
         }

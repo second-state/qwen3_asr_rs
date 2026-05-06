@@ -24,6 +24,7 @@ gpui = { git = "https://github.com/zed-industries/zed" }
 gpui_platform = { git = "https://github.com/zed-industries/zed" }
 cpal = "0.17.3"
 arboard = "3.6.1"
+enigo = "0.3"
 tch = { version = "0.20", optional = true, features = ["download-libtorch"] }
 tokenizers = "0.21"
 serde = { version = "1.0", features = ["derive"] }
