@@ -70,6 +70,12 @@ jobs:
             libtorch-url: https://github.com/second-state/libtorch-releases/releases/download/v2.7.1/libtorch-cxx11-abi-aarch64-cuda12.6-2.7.1.tar.gz
             libtorch-archive: libtorch.tar.gz
             needs-cuda: true
+          - os: windows-latest
+            name: Windows x86_64
+            backend: tch
+            asset-name: asr-windows-x86_64
+            libtorch-url: https://download.pytorch.org/libtorch/cpu/libtorch-win-shared-with-deps-2.7.1%2Bcpu.zip
+            libtorch-archive: libtorch.zip
           - os: macos-latest
             name: macOS ARM64
             backend: mlx
@@ -120,9 +126,14 @@ jobs:
         if: matrix.backend == 'tch'
         run: curl -Lo ${{ matrix.libtorch-archive }} "${{ matrix.libtorch-url }}"
 
-      - name: Extract libtorch
-        if: matrix.backend == 'tch'
+      - name: Extract libtorch (Unix)
+        if: matrix.backend == 'tch' && runner.os != 'Windows'
         run: tar xzf ${{ matrix.libtorch-archive }}
+
+      - name: Extract libtorch (Windows)
+        if: matrix.backend == 'tch' && runner.os == 'Windows'
+        shell: pwsh
+        run: Expand-Archive -Path ${{ matrix.libtorch-archive }} -DestinationPath . -Force
 
       - name: Set linker flags (Linux only)
         if: matrix.backend == 'tch' && runner.os == 'Linux'
@@ -151,7 +162,8 @@ jobs:
           name: tokenizers
           path: tokenizers
 
-      - name: Package release
+      - name: Package release (Unix)
+        if: runner.os != 'Windows'
         run: |
           mkdir ${{ matrix.asset-name }}
           cp target/release/asr ${{ matrix.asset-name }}/asr
@@ -164,6 +176,19 @@ jobs:
             cp -r libtorch ${{ matrix.asset-name }}/libtorch
           fi
           zip -r ${{ matrix.asset-name }}.zip ${{ matrix.asset-name }}
+
+      - name: Package release (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Name ${{ matrix.asset-name }} -Force
+          Copy-Item target\release\asr.exe ${{ matrix.asset-name }}\
+          Copy-Item target\release\asr-server.exe ${{ matrix.asset-name }}\
+          Copy-Item -Recurse tokenizers ${{ matrix.asset-name }}\
+          if ("${{ matrix.backend }}" -eq "tch") {
+            Copy-Item -Recurse libtorch ${{ matrix.asset-name }}\
+          }
+          Compress-Archive -Path ${{ matrix.asset-name }} -DestinationPath ${{ matrix.asset-name }}.zip -Force
 
       - name: Upload release asset
         env:

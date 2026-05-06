@@ -14,19 +14,36 @@ Learn more:
 
 ## Quick Start
 
-The install script automatically detects your platform (macOS/Linux, CPU/CUDA GPU), downloads the correct release binary, model weights, and a sample audio file:
+The install script automatically detects your platform (macOS/Linux/Windows, CPU/CUDA GPU), downloads the correct release binary, model weights, and a sample audio file:
+
+### macOS / Linux
 
 ```bash
 curl -sSf https://raw.githubusercontent.com/second-state/qwen3_asr_rs/main/install.sh | bash
+```
+
+### Windows (PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/second-state/qwen3_asr_rs/main/install.ps1 | iex
 ```
 
 The installer will prompt you to choose a model size (0.6B recommended) and, on Linux with an NVIDIA GPU, whether to use CUDA or CPU.
 
 Once complete, run your first transcription:
 
+**macOS / Linux:**
+
 ```bash
 cd qwen3_asr_rs
 ./asr ./Qwen3-ASR-0.6B sample.wav
+```
+
+**Windows:**
+
+```powershell
+cd qwen3_asr_rs
+.\asr .\Qwen3-ASR-0.6B sample.wav
 ```
 
 Output:
