@@ -20,3 +20,4 @@ pub mod text_decoder;
 pub mod tokenizer;
 pub mod weights;
 pub mod capture;
+pub mod gui;

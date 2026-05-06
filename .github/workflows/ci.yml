@@ -24,6 +24,11 @@ jobs:
           - os: macos-latest
             name: macOS ARM64 (mlx)
             backend: mlx
+          - os: windows-latest
+            name: Windows x86_64
+            backend: tch
+            libtorch-url: https://download.pytorch.org/libtorch/cpu/libtorch-win-shared-with-deps-2.7.1%2Bcpu.zip
+            libtorch-archive: libtorch.zip
 
     runs-on: ${{ matrix.os }}
     name: Build (${{ matrix.name }})
@@ -55,6 +60,11 @@ jobs:
         if: matrix.backend == 'tch'
         run: tar xzf ${{ matrix.libtorch-archive }}
 
+      - name: Extract libtorch (Windows)
+        if: matrix.backend == 'tch' && runner.os == 'Windows'
+        shell: pwsh
+        run: Expand-Archive -Path ${{ matrix.libtorch-archive }} -DestinationPath . -Force
+
       - name: Set linker flags (Linux only)
         if: matrix.backend == 'tch' && runner.os == 'Linux'
         run: echo "RUSTFLAGS=-C link-arg=-Wl,-rpath-link,${{ github.workspace }}/libtorch/lib -C link-arg=-Wl,-rpath,\$ORIGIN/libtorch/lib" >> "$GITHUB_ENV"
@@ -65,11 +75,21 @@ jobs:
           echo "DNNL_MAX_CPU_ISA=AVX2" >> "$GITHUB_ENV"
           echo "ATEN_CPU_CAPABILITY=avx2" >> "$GITHUB_ENV"
 
+      - name: Set libtorch env (Linux)
+        if: matrix.backend == 'tch' && runner.os == 'Linux'
+        run: |
+          echo "LIBTORCH=${{ github.workspace }}/libtorch" >> "$GITHUB_ENV"
+          echo "LIBTORCH_BYPASS_VERSION_CHECK=1" >> "$GITHUB_ENV"
+
+      - name: Set libtorch env (Windows)
+        if: matrix.backend == 'tch' && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          echo "LIBTORCH=${{ github.workspace }}\libtorch" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "LIBTORCH_BYPASS_VERSION_CHECK=1" | Out-File -FilePath $env:GITHUB_ENV -Append
+
       - name: Build (tch)
         if: matrix.backend == 'tch'
-        env:
-          LIBTORCH: ${{ github.workspace }}/libtorch
-          LIBTORCH_BYPASS_VERSION_CHECK: "1"
         run: cargo build --release
 
       - name: Build (mlx)
@@ -77,6 +97,13 @@ jobs:
         run: cargo build --release --no-default-features --features mlx
 
       - name: Set up Python
+        if: runner.os != 'Windows'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Python (Windows)
+        if: runner.os == 'Windows'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -88,12 +115,17 @@ jobs:
         if: matrix.backend == 'tch' && runner.os == 'Linux'
         run: echo "LD_LIBRARY_PATH=${{ github.workspace }}/libtorch/lib:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
 
+      - name: Set library path (Windows)
+        if: matrix.backend == 'tch' && runner.os == 'Windows'
+        shell: pwsh
+        run: echo "${{ github.workspace }}\libtorch\lib" | Out-File -FilePath $env:GITHUB_PATH -Append
+
       - name: Download 0.6B model
-        run: python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen3-ASR-0.6B', local_dir='Qwen3-ASR-0.6B')"
+        run: python -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen3-ASR-0.6B', local_dir='Qwen3-ASR-0.6B')"
 
       - name: Generate 0.6B tokenizer.json
         run: |
-          python3 -c "
+          python -c "
           from transformers import AutoTokenizer
           tok = AutoTokenizer.from_pretrained('Qwen3-ASR-0.6B', trust_remote_code=True)
           tok.backend_tokenizer.save('Qwen3-ASR-0.6B/tokenizer.json')
@@ -102,12 +134,27 @@ jobs:
 
       - name: "[0.6B] Transcribe sample1 (English)"
         run: ./target/release/asr Qwen3-ASR-0.6B test_audio/sample1.wav
+        if: runner.os != 'Windows'
+
+      - name: "[0.6B] Transcribe sample1 (English) Windows"
+        run: .\target\release\asr Qwen3-ASR-0.6B test_audio\sample1.wav
+        if: runner.os == 'Windows'
 
       - name: "[0.6B] Transcribe sample2 (English)"
         run: ./target/release/asr Qwen3-ASR-0.6B test_audio/sample2.wav
+        if: runner.os != 'Windows'
+
+      - name: "[0.6B] Transcribe sample2 (English) Windows"
+        run: .\target\release\asr Qwen3-ASR-0.6B test_audio\sample2.wav
+        if: runner.os == 'Windows'
 
       - name: "[0.6B] Transcribe sample3 (Chinese)"
         run: ./target/release/asr Qwen3-ASR-0.6B test_audio/sample3.wav
+        if: runner.os != 'Windows'
+
+      - name: "[0.6B] Transcribe sample3 (Chinese) Windows"
+        run: .\target\release\asr Qwen3-ASR-0.6B test_audio\sample3.wav
+        if: runner.os == 'Windows'
 
       - name: "[0.6B] API server test"
         run: |
@@ -135,13 +182,37 @@ jobs:
           echo "Verbose JSON transcription passed"
           kill $SERVER_PID
           echo "All API tests passed"
+        if: runner.os != 'Windows'
+
+      - name: "[0.6B] API server test"
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Start-Process .\target\release\asr-server -ArgumentList '--model-dir','Qwen3-ASR-0.6B','--port','8099' -NoNewWindow
+          for ($i=0; $i -lt 30; $i++) {
+            try { $r = Invoke-WebRequest -Uri http://localhost:8099/health -UseBasicParsing; if ($r.Content -match '"ok"') { break } } catch {}
+            Start-Sleep -Seconds 1
+          }
+          $r = Invoke-WebRequest -Uri http://localhost:8099/health -UseBasicParsing
+          if ($r.Content -notmatch '"ok"') { throw "Health check failed" }
+          Write-Host "Health check passed"
+          $r = Invoke-WebRequest -Uri http://localhost:8099/v1/models -UseBasicParsing
+          if ($r.Content -notmatch '"qwen3-asr"') { throw "Models failed" }
+          Write-Host "Models endpoint passed"
+          $form = @{ file = Get-Item test_audio\sample1.wav }
+          $r = Invoke-WebRequest -Uri http://localhost:8099/v1/audio/transcriptions -Method Post -Form $form -UseBasicParsing
+          Write-Host "Transcription result: $($r.Content)"
+          if ($r.Content -notmatch 'thank you') { throw "JSON transcription failed" }
+          Write-Host "JSON transcription passed"
+          Stop-Process -Name asr-server -Force
+          Write-Host "All API tests passed"
 
       - name: Download 1.7B model
-        run: python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen3-ASR-1.7B', local_dir='Qwen3-ASR-1.7B')"
+        run: python -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen3-ASR-1.7B', local_dir='Qwen3-ASR-1.7B')"
 
       - name: Generate 1.7B tokenizer.json
         run: |
-          python3 -c "
+          python -c "
           from transformers import AutoTokenizer
           tok = AutoTokenizer.from_pretrained('Qwen3-ASR-1.7B', trust_remote_code=True)
           tok.backend_tokenizer.save('Qwen3-ASR-1.7B/tokenizer.json')
@@ -150,12 +221,27 @@ jobs:
 
       - name: "[1.7B] Transcribe sample1 (English)"
         run: ./target/release/asr Qwen3-ASR-1.7B test_audio/sample1.wav
+        if: runner.os != 'Windows'
+
+      - name: "[1.7B] Transcribe sample1 (English) Windows"
+        run: .\target\release\asr Qwen3-ASR-1.7B test_audio\sample1.wav
+        if: runner.os == 'Windows'
 
       - name: "[1.7B] Transcribe sample2 (English)"
         run: ./target/release/asr Qwen3-ASR-1.7B test_audio/sample2.wav
+        if: runner.os != 'Windows'
+
+      - name: "[1.7B] Transcribe sample2 (English) Windows"
+        run: .\target\release\asr Qwen3-ASR-1.7B test_audio\sample2.wav
+        if: runner.os == 'Windows'
 
       - name: "[1.7B] Transcribe sample3 (Chinese)"
         run: ./target/release/asr Qwen3-ASR-1.7B test_audio/sample3.wav
+        if: runner.os != 'Windows'
+
+      - name: "[1.7B] Transcribe sample3 (Chinese) Windows"
+        run: .\target\release\asr Qwen3-ASR-1.7B test_audio\sample3.wav
+        if: runner.os == 'Windows'
 
       - name: Upload binaries
         uses: actions/upload-artifact@v4
@@ -164,4 +250,3 @@ jobs:
           path: |
             target/release/asr
             target/release/asr-server
-            target/release/gui

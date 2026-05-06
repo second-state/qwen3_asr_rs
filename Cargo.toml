@@ -15,10 +15,6 @@ path = "src/main.rs"
 name = "asr-server"
 path = "src/bin/server.rs"
 
-[[bin]]
-name = "gui"
-path = "src/bin/gui.rs"
-
 [dependencies]
 gpui = { git = "https://github.com/zed-industries/zed" }
 gpui_platform = { git = "https://github.com/zed-industries/zed" }

@@ -3,6 +3,7 @@
 Pure Rust implementation of [Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR) automatic speech recognition. The project builds a cross-platform CLI tool and API server suitable for agentic skills for AI agents and bots.
 
 - **asr** generates text from an input audio file (supports most codex and file formats)
+- **gui** records microphone input via GPUI and transcribes in real time (supports clipboard paste and direct keyboard input)
 - **asr-server** runs an OpenAI-compatible HTTP API server for audio transcription
 
 Supports two backends: **libtorch** (via the `tch` crate, cross-platform with optional CUDA) and **MLX** (Apple Silicon native via Metal GPU). Loads model weights directly from safetensors files and re-implements the complete neural network forward pass in Rust.
@@ -60,6 +61,35 @@ The implementation ports the Qwen3-ASR encoder-decoder architecture from PyTorch
 - **Audio Encoder** (Whisper-style): 3x Conv2d downsampling → sinusoidal positional embeddings → 18 transformer encoder layers → output projection (896 → 1024)
 - **Text Decoder** (Qwen3): 28 transformer decoder layers with Grouped Query Attention (16 Q heads / 8 KV heads), QK-normalization, MRoPE (Multimodal Rotary Position Embeddings), and SwiGLU MLP
 - **Audio preprocessing**: FFmpeg decodes any audio format → resampled to mono 16kHz f32 → 128-bin log-mel spectrogram (Whisper-style)
+
+## GUI Voice Input
+
+The `gui` binary provides a desktop voice-to-text input tool powered by [GPUI](https://github.com/zed-industries/zed) (the same framework behind the Zed editor). Speak into your microphone and the transcribed text is pasted directly into any application.
+
+### Features
+
+- **Microphone recording**: toggle or hold-to-talk modes
+- **Direct input**: types transcribed text directly into the active window (uses `xdotool` on Linux, `enigo` on Windows/macOS)
+- **Clipboard output**: copies transcribed text to the system clipboard
+- **Keyboard shortcuts**:
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+T` | Toggle recording on/off |
+| `Ctrl+H` | Hold-to-talk (hold `h`, release to stop) |
+| `Ctrl+C` | Copy transcribed text to clipboard |
+| `Ctrl+Shift+C` | Clear transcribed text |
+| `Ctrl+O` | Switch output method (clipboard / direct input) |
+
+### Running
+
+The GUI auto-discovers the model directory (checks HuggingFace cache and local directories):
+
+```bash
+asr gui
+```
+
+By default, transcription uses the `ja` language hint. To change the language, edit `src/gui.rs` and rebuild.
 
 ## Supported Models
 
@@ -255,6 +285,10 @@ src/
 ├── text_decoder.rs    # Qwen3 text decoder with KV cache
 ├── tokenizer.rs       # HuggingFace tokenizer wrapper
 ├── inference.rs       # End-to-end ASR inference pipeline
+├── capture.rs         # cpal-based microphone audio capture
+├── bin/
+│   ├── server.rs      # API server binary entry point
+│   └── gui.rs         # GPUI voice input GUI
 └── backend/
     └── mlx/           # Apple MLX backend (Metal GPU)
         ├── ffi.rs     # Raw C FFI bindings to mlx-c
