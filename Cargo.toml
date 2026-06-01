@@ -17,7 +17,9 @@ path = "src/bin/server.rs"
 
 [dependencies]
 tch = { version = "0.20", optional = true }
-tokenizers = "0.21"
+# Keep tokenizers' default capabilities except esaxx_fast: esaxx-rs/cpp
+# hardcodes MSVC /MT, which conflicts with libtorch/tch's dynamic CRT on Windows.
+tokenizers = { version = "0.21", default-features = false, features = ["onig", "progressbar"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 hound = "3.5"
