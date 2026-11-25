@@ -46,10 +46,13 @@ The implementation ports the Qwen3-ASR encoder-decoder architecture from PyTorch
 
 ## Supported Models
 
-| Model | Parameters | HuggingFace |
-|-------|-----------|-------------|
-| Qwen3-ASR-0.6B | 0.6B | [Qwen/Qwen3-ASR-0.6B](https://huggingface.co/Qwen/Qwen3-ASR-0.6B) |
-| Qwen3-ASR-1.7B | 1.7B | [Qwen/Qwen3-ASR-1.7B](https://huggingface.co/Qwen/Qwen3-ASR-1.7B) |
+| Model | Parameters | Languages | License | HuggingFace |
+|-------|-----------|-----------|---------|-------------|
+| Qwen3-ASR-0.6B | 0.6B | 30 languages | Apache-2.0 | [Qwen/Qwen3-ASR-0.6B](https://huggingface.co/Qwen/Qwen3-ASR-0.6B) |
+| Qwen3-ASR-1.7B | 1.7B | 30 languages | Apache-2.0 | [Qwen/Qwen3-ASR-1.7B](https://huggingface.co/Qwen/Qwen3-ASR-1.7B) |
+| Oruk Fourier-2B | 2.04B | English | CC BY-NC 4.0 | [oruk/oruk-fourier-2b](https://huggingface.co/oruk/oruk-fourier-2b) |
+
+Both legacy `thinker_config` (`thinker.*`) checkpoints and native HuggingFace `transformers>=5.21` (`audio_config`/`text_config`, `model.audio_tower.*`, `model.multi_modal_projector.*`, `model.language_model.*`) checkpoints with tied word embeddings are supported.
 
 ## Usage
 
@@ -174,6 +177,12 @@ from transformers import AutoTokenizer
 tok = AutoTokenizer.from_pretrained('Qwen3-ASR-0.6B', trust_remote_code=True)
 tok.backend_tokenizer.save('Qwen3-ASR-0.6B/tokenizer.json')
 "
+```
+
+Native HuggingFace checkpoints such as `oruk/oruk-fourier-2b` already include `tokenizer.json` and can be downloaded directly without a conversion step:
+
+```bash
+huggingface-cli download oruk/oruk-fourier-2b config.json model.safetensors tokenizer.json --local-dir oruk-fourier-2b
 ```
 
 ### Build for macOS (MLX)

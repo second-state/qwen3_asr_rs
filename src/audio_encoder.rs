@@ -34,6 +34,26 @@ impl AudioEncoder {
         config: &AudioEncoderConfig,
         device: Device,
     ) -> Result<Self> {
+        let (proj1_prefix, proj2_prefix) =
+            if weights.contains_key(&format!("{}.proj1.weight", prefix)) {
+                (format!("{}.proj1", prefix), format!("{}.proj2", prefix))
+            } else {
+                (
+                    "model.multi_modal_projector.linear_1".to_string(),
+                    "model.multi_modal_projector.linear_2".to_string(),
+                )
+            };
+        Self::load_with_projector(weights, prefix, &proj1_prefix, &proj2_prefix, config, device)
+    }
+
+    pub fn load_with_projector(
+        weights: &HashMap<String, Tensor>,
+        prefix: &str,
+        proj1_prefix: &str,
+        proj2_prefix: &str,
+        config: &AudioEncoderConfig,
+        device: Device,
+    ) -> Result<Self> {
         let conv2d1 = Conv2d::load(weights, &format!("{}.conv2d1", prefix), [2, 2], [1, 1])?;
         let conv2d2 = Conv2d::load(weights, &format!("{}.conv2d2", prefix), [2, 2], [1, 1])?;
         let conv2d3 = Conv2d::load(weights, &format!("{}.conv2d3", prefix), [2, 2], [1, 1])?;
@@ -51,8 +71,8 @@ impl AudioEncoder {
         }
 
         let ln_post = LayerNorm::load(weights, &format!("{}.ln_post", prefix), 1e-5)?;
-        let proj1 = Linear::load(weights, &format!("{}.proj1", prefix))?;
-        let proj2 = Linear::load(weights, &format!("{}.proj2", prefix))?;
+        let proj1 = Linear::load(weights, proj1_prefix)?;
+        let proj2 = Linear::load(weights, proj2_prefix)?;
 
         // Create sinusoidal positional embedding
         let positional_embedding = create_sinusoidal_embedding(

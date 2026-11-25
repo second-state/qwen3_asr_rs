@@ -155,6 +155,7 @@ choose_model() {
     info "Available models:"
     echo "  1) Qwen3-ASR-0.6B  (recommended — ~1.2 GB download)"
     echo "  2) Qwen3-ASR-1.7B  (~3.5 GB download)"
+    echo "  3) Oruk Fourier-2B (English-only, CC BY-NC 4.0 — ~4.1 GB download)"
     echo ""
 
     local choice
@@ -162,11 +163,22 @@ choose_model() {
     choice="${choice:-1}"
 
     case "$choice" in
-        1) MODEL="Qwen3-ASR-0.6B" ;;
-        2) MODEL="Qwen3-ASR-1.7B" ;;
+        1)
+            MODEL="Qwen3-ASR-0.6B"
+            HF_REPO="Qwen/Qwen3-ASR-0.6B"
+            ;;
+        2)
+            MODEL="Qwen3-ASR-1.7B"
+            HF_REPO="Qwen/Qwen3-ASR-1.7B"
+            ;;
+        3)
+            MODEL="oruk-fourier-2b"
+            HF_REPO="oruk/oruk-fourier-2b"
+            ;;
         *)
             warn "Invalid choice '${choice}', defaulting to 0.6B."
             MODEL="Qwen3-ASR-0.6B"
+            HF_REPO="Qwen/Qwen3-ASR-0.6B"
             ;;
     esac
 
@@ -182,11 +194,13 @@ download_model() {
     fi
 
     mkdir -p "${MODEL_DIR}"
-    local base_url="https://huggingface.co/Qwen/${MODEL}/resolve/main"
+    local base_url="https://huggingface.co/${HF_REPO}/resolve/main"
 
     local files="config.json"
     if [ "$MODEL" = "Qwen3-ASR-0.6B" ]; then
         files="$files model.safetensors"
+    elif [ "$MODEL" = "oruk-fourier-2b" ]; then
+        files="$files model.safetensors tokenizer.json"
     else
         files="$files model.safetensors.index.json model-00001-of-00002.safetensors model-00002-of-00002.safetensors"
     fi
