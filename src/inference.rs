@@ -4,13 +4,11 @@ use crate::tensor::{Device, Tensor};
 
 use crate::audio;
 use crate::audio_encoder::AudioEncoder;
-use crate::config::AsrConfig;
+use crate::config::{detect_weight_prefixes, AsrConfig};
 use crate::layers::compute_mrope_cos_sin;
 use crate::mel::WhisperFeatureExtractor;
 use crate::text_decoder::{create_causal_mask, KvCache, TextDecoder};
-use crate::tokenizer::{
-    AsrTokenizer, AUDIO_PAD_TOKEN_ID, ENDOFTEXT_TOKEN_ID, IM_END_TOKEN_ID,
-};
+use crate::tokenizer::{AsrTokenizer, ENDOFTEXT_TOKEN_ID, IM_END_TOKEN_ID};
 use crate::weights;
 
 const MEL_SAMPLE_RATE: u32 = 16000;
@@ -39,12 +37,15 @@ impl AsrInference {
             weights::load_model_weights(model_dir, device).context("Failed to load weights")?;
 
         tracing::info!("Loaded {} weight tensors", all_weights.len());
+        let prefixes = detect_weight_prefixes(&all_weights);
 
         // Load audio encoder
         tracing::info!("Loading audio encoder...");
-        let audio_encoder = AudioEncoder::load(
+        let audio_encoder = AudioEncoder::load_with_projector(
             &all_weights,
-            "thinker.audio_tower",
+            prefixes.audio_tower,
+            prefixes.proj1,
+            prefixes.proj2,
             &config.thinker_config.audio_config,
             device,
         )
@@ -54,7 +55,7 @@ impl AsrInference {
         tracing::info!("Loading text decoder...");
         let text_decoder = TextDecoder::load(
             &all_weights,
-            "thinker.model",
+            prefixes.text_model,
             &config.thinker_config.text_config,
         )
         .context("Failed to load text decoder")?;
@@ -219,6 +220,7 @@ impl AsrInference {
         num_audio_tokens: usize,
         language: Option<&str>,
     ) -> Result<(Vec<i64>, Vec<usize>)> {
+        let tc = &self.config.thinker_config;
         let mut tokens: Vec<i64> = vec![
             151644, // <|im_start|>
             8948,   // system
@@ -228,18 +230,18 @@ impl AsrInference {
             151644, // <|im_start|>
             872,    // user
             198,    // \n
-            151669, // <|audio_start|>
+            tc.audio_start_token_id, // <|audio_start|>
         ];
 
         let audio_start_pos = tokens.len();
         for _ in 0..num_audio_tokens {
-            tokens.push(AUDIO_PAD_TOKEN_ID);
+            tokens.push(tc.audio_token_id);
         }
         let audio_positions: Vec<usize> =
             (audio_start_pos..audio_start_pos + num_audio_tokens).collect();
 
         tokens.extend_from_slice(&[
-            151670, // <|audio_end|>
+            tc.audio_end_token_id, // <|audio_end|>
             151645, // <|im_end|>
             198,    // \n
             151644, // <|im_start|>

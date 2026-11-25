@@ -68,10 +68,11 @@ impl TextDecoder {
 
         let norm = RmsNorm::load(weights, &format!("{}.norm", prefix), config.rms_norm_eps)?;
 
-        let lm_head_key = format!(
-            "{}",
+        let lm_head_key = if prefix.contains(".model") {
             prefix.replace(".model", ".lm_head")
-        );
+        } else {
+            "lm_head".to_string()
+        };
         let lm_head_weight = if config.tie_word_embeddings {
             embed_tokens.shallow_clone()
         } else {
